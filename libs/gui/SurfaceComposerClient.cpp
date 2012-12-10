@@ -599,6 +599,15 @@ status_t SurfaceComposerClient::getDisplayInfo(
     return ComposerService::getComposerService()->getDisplayInfo(display, info);
 }
 
+ssize_t SurfaceComposerClient::getDisplayWidth(int32_t dpy) {
+	return 720;
+}
+
+ssize_t SurfaceComposerClient::getDisplayHeight(int32_t dpy) {
+	return 1280;
+}
+
+
 void SurfaceComposerClient::blankDisplay(const sp<IBinder>& token) {
     ComposerService::getComposerService()->blank(token);
 }
