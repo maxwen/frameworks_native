@@ -66,8 +66,9 @@ public:
 
     // Get information about a display
     static status_t getDisplayInfo(const sp<IBinder>& display, DisplayInfo* info);
-    static ssize_t getDisplayWidth(int32_t dpy);
-    static ssize_t getDisplayHeight(int32_t dpy);
+    static ssize_t getDisplayWidth(int32_t displayId);
+    static ssize_t getDisplayHeight(int32_t displayId);
+	static ssize_t getDisplayOrientation(int32_t displayId);
 
     /* triggers screen off and waits for it to complete */
     static void blankDisplay(const sp<IBinder>& display);
