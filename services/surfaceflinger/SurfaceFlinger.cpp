@@ -68,9 +68,6 @@
 #include "DisplayHardware/GraphicBufferAlloc.h"
 #include "DisplayHardware/HWComposer.h"
 
-#ifdef SAMSUNG_HDMI_SUPPORT
-#include "SecTVOutService.h"
-#endif
 
 #define EGL_VERSION_HW_ANDROID  0x3143
 
@@ -124,16 +121,6 @@ SurfaceFlinger::SurfaceFlinger()
     }
     ALOGI_IF(mDebugRegion, "showupdates enabled");
     ALOGI_IF(mDebugDDMS, "DDMS debugging enabled");
-
-#ifdef SAMSUNG_HDMI_SUPPORT
-    ALOGD(">>> Run service");
-    android::SecTVOutService::instantiate();
-#if defined(SAMSUNG_EXYNOS5250)
-    mHdmiClient = SecHdmiClient::getInstance();
-    mHdmiClient->setHdmiEnable(1);
-#endif
-#endif
-
 }
 
 void SurfaceFlinger::onFirstRef()
@@ -141,6 +128,7 @@ void SurfaceFlinger::onFirstRef()
     mEventQueue.init(this);
 
     run("SurfaceFlinger", PRIORITY_URGENT_DISPLAY);
+
     // Wait for the main thread to be done with its initialization
     mReadyToRunBarrier.wait();
 }
@@ -677,21 +665,10 @@ status_t SurfaceFlinger::getDisplayInfo(const sp<IBinder>& display, DisplayInfo*
         info->orientation = 0;
     }
 
-    char value[PROPERTY_VALUE_MAX];
-    property_get("ro.sf.hwrotation", value, "0");
-    int additionalRot = atoi(value) / 90;
-    if ((type == DisplayDevice::DISPLAY_PRIMARY) && (additionalRot & DisplayState::eOrientationSwapMask)) {
-        info->h = hwc.getWidth(type);
-        info->w = hwc.getHeight(type);
-        info->xdpi = ydpi;
-        info->ydpi = xdpi;
-    }
-    else {
-        info->w = hwc.getWidth(type);
-        info->h = hwc.getHeight(type);
-        info->xdpi = xdpi;
-        info->ydpi = ydpi;
-    }
+    info->w = hwc.getWidth(type);
+    info->h = hwc.getHeight(type);
+    info->xdpi = xdpi;
+    info->ydpi = ydpi;
     info->fps = float(1e9 / hwc.getRefreshPeriod(type));
 
     // All non-virtual displays are currently considered secure.
@@ -1092,7 +1069,7 @@ void SurfaceFlinger::handleTransactionLocked(uint32_t transactionFlags)
 
     if (transactionFlags & eTraversalNeeded) {
         for (size_t i=0 ; i<count ; i++) {
-            const sp<LayerBase>& layer(currentLayers[i]);
+            const sp<LayerBase>& layer = currentLayers[i];
             uint32_t trFlags = layer->getTransactionFlags(eTransactionNeeded);
             if (!trFlags) continue;
 
@@ -1165,6 +1142,18 @@ void SurfaceFlinger::handleTransactionLocked(uint32_t transactionFlags)
                             disp->setProjection(state.orientation,
                                     state.viewport, state.frame);
                         }
+
+                        // Walk through all the layers in currentLayers,
+                        // and update their transform hint.
+                        //
+                        // TODO: we could be much more clever about which
+                        // layers we touch and how often we do these updates
+                        // (e.g. only touch the layers associated with this
+                        // display, and only on a rotation).
+                        for (size_t i = 0; i < count; i++) {
+                            const sp<LayerBase>& layerBase = currentLayers[i];
+                            layerBase->updateTransformHint();
+                        }
                     }
                 }
             }
@@ -1218,61 +1207,6 @@ void SurfaceFlinger::handleTransactionLocked(uint32_t transactionFlags)
             }
         }
     }
-
-    if (transactionFlags & (eTraversalNeeded|eDisplayTransactionNeeded)) {
-        // The transform hint might have changed for some layers
-        // (either because a display has changed, or because a layer
-        // as changed).
-        //
-        // Walk through all the layers in currentLayers,
-        // and update their transform hint.
-        //
-        // If a layer is visible only on a single display, then that
-        // display is used to calculate the hint, otherwise we use the
-        // default display.
-        //
-        // NOTE: we do this here, rather than in rebuildLayerStacks() so that
-        // the hint is set before we acquire a buffer from the surface texture.
-        //
-        // NOTE: layer transactions have taken place already, so we use their
-        // drawing state. However, SurfaceFlinger's own transaction has not
-        // happened yet, so we must use the current state layer list
-        // (soon to become the drawing state list).
-        //
-        sp<const DisplayDevice> disp;
-        uint32_t currentlayerStack = 0;
-        for (size_t i=0; i<count; i++) {
-            // NOTE: we rely on the fact that layers are sorted by
-            // layerStack first (so we don't have to traverse the list
-            // of displays for every layer).
-            const sp<LayerBase>& layerBase(currentLayers[i]);
-            uint32_t layerStack = layerBase->drawingState().layerStack;
-            if (i==0 || currentlayerStack != layerStack) {
-                currentlayerStack = layerStack;
-                // figure out if this layerstack is mirrored
-                // (more than one display) if so, pick the default display,
-                // if not, pick the only display it's on.
-                disp.clear();
-                for (size_t dpy=0 ; dpy<mDisplays.size() ; dpy++) {
-                    sp<const DisplayDevice> hw(mDisplays[dpy]);
-                    if (hw->getLayerStack() == currentlayerStack) {
-                        if (disp == NULL) {
-                            disp = hw;
-                        } else {
-                            disp = getDefaultDisplayDevice();
-                            break;
-                        }
-                    }
-                }
-            }
-            if (disp != NULL) {
-                // presumably this means this layer is using a layerStack
-                // that is not visible on any display
-                layerBase->updateTransformHint(disp);
-            }
-        }
-    }
-
 
     /*
      * Perform our own transaction if needed

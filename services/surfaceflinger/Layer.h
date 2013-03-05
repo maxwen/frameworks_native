@@ -91,8 +91,8 @@ public:
     inline const sp<GraphicBuffer>& getActiveBuffer() const { return mActiveBuffer; }
 
     // Updates the transform hint in our SurfaceTexture to match
-    // the current orientation of the display device.
-    virtual void updateTransformHint(const sp<const DisplayDevice>& hw) const;
+    // the current orientation of the default display device.
+    virtual void updateTransformHint() const;
 
 protected:
     virtual void onFirstRef();
